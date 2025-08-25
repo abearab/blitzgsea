@@ -95,7 +95,8 @@ def enrichment_score(abs_signature, signature_map, gene_set):
     number_miss = len(abs_signature) - number_hits
     sum_hit_scores = np.sum(abs_signature[hits])
     norm_hit = float(1.0/sum_hit_scores)
-    norm_no_hit = float(1.0/number_miss)
+    # Avoid division by zero when all genes are in the gene set
+    norm_no_hit = float(1.0/number_miss) if number_miss > 0 else 0.0
     running_sum = np.cumsum(hit_indicator * abs_signature * norm_hit - no_hit_indicator * norm_no_hit)
     nn = np.argmax(np.abs(running_sum))
     es = running_sum[nn]
@@ -108,7 +109,8 @@ def enrichment_score_null(abs_signature, hit_indicator, number_hits):
     number_miss = len(abs_signature) - number_hits
     sum_hit_scores = np.sum(abs_signature[hits])
     norm_hit = 1.0 / sum_hit_scores
-    norm_no_hit = 1.0 / number_miss
+    # Avoid division by zero when all genes are in the gene set
+    norm_no_hit = 1.0 / number_miss if number_miss > 0 else 0.0
     increment = hit_indicator_new * (abs_signature * norm_hit + norm_no_hit) - norm_no_hit
     running_sum = np.cumsum(increment, dtype=np.float32)
     peak = np.abs(running_sum).argmax()
