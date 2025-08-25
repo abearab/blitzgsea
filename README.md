@@ -1,6 +1,6 @@
 ![bgsea_small](https://github.com/user-attachments/assets/e9a95d0d-c796-4041-bfa7-7e31664e6119)
 
-[Installation](#installation) | [Example](#python-example) | [Optional Parameters](#optional-parameters) | [Speed-up](#speeding-up-enrichment-calculations) | [Plotting](#plotting-enrichment-results) | [Attribution](#attribution) | [References](#references)
+[Installation](#installation) | [Example](#python-example) | [DGSEA](#dual-gene-set-enrichment-analysis-dgsea) | [Optional Parameters](#optional-parameters) | [Speed-up](#speeding-up-enrichment-calculations) | [Plotting](#plotting-enrichment-results) | [Attribution](#attribution) | [References](#references)
 
 # blitzGSEA Introduction
 
@@ -74,6 +74,53 @@ The gene set library is a dictionary with the gene set names as key and lists of
 ...
 }
 ```
+
+# Dual Gene Set Enrichment Analysis (DGSEA)
+
+blitzGSEA also provides DGSEA (Dual Gene Set Enrichment Analysis) functionality to compare the relative enrichment of two gene sets against a single gene expression signature. This is useful for comparing the activity of two biological pathways or determining which of two gene signatures is more active in your data.
+
+## Python DGSEA Example
+
+```python
+import blitzgsea as blitz
+import pandas as pd
+
+# read signature as pandas dataframe
+signature = pd.read_csv("your_signature.tsv", sep="\t")
+
+# define two gene sets to compare
+gene_set_1 = ['TP53', 'BRCA1', 'BRCA2', 'ATM', 'CHEK2']  # DNA repair genes
+gene_set_2 = ['MYC', 'CCND1', 'CDK4', 'E2F1', 'RB1']    # Cell cycle genes
+
+# run dual gene set enrichment analysis
+result = blitz.dgsea(signature, gene_set_1, gene_set_2, permutations=1000, verbose=True)
+
+print(result)
+```
+
+### DGSEA Output
+
+The `dgsea()` function returns a dictionary with the following keys:
+
+| key | type | description |
+|:-----|:---------|:------|
+| `gene_set_1_es` | float | Enrichment score for the first gene set |
+| `gene_set_2_es` | float | Enrichment score for the second gene set |
+| `gene_set_1_nes` | float | Normalized enrichment score for the first gene set |
+| `gene_set_2_nes` | float | Normalized enrichment score for the second gene set |
+| `gene_set_1_pval` | float | P-value for the first gene set |
+| `gene_set_2_pval` | float | P-value for the second gene set |
+| `differential_es` | float | Difference in enrichment scores (ES1 - ES2) |
+| `differential_nes` | float | Difference in normalized enrichment scores (NES1 - NES2) |
+| `more_enriched` | str | Which gene set is more enriched ('gene_set_1' or 'gene_set_2') |
+
+### DGSEA Parameters
+
+| parameter name | type | default	| description |
+|:-----|:---------|:-------------|:------|
+| `permutations`	| int | 1000	| Number of randomized permutations to estimate statistical significance. |
+| `seed` | int | 0 | Random seed for reproducibility. |
+| `verbose` | bool | False | Toggle additional output. |
 
 ### Optional Parameters
 

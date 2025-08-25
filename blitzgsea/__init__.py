@@ -444,3 +444,139 @@ def gsea(signature, library, permutations: int=1000, anchors: int=40, min_size: 
         print('Kolmogorov-Smirnov test failed. Gamma approximation deviates from permutation samples.\n'+"KS p-value (pos): "+str(ks_pos)+"\nKS p-value (neg): "+str(ks_neg))
     
     return res.sort_values("pval", key=abs, ascending=True)
+
+def dgsea(signature, gene_set_1, gene_set_2, permutations: int=1000, seed: int=0, verbose: bool=False):
+    """
+    Perform Dual Gene Set Enrichment Analysis (DGSEA) to compare the relative enrichment 
+    of two gene sets against a single gene expression signature.
+    
+    DGSEA computes enrichment scores for both gene sets and determines which one is 
+    more significantly enriched in the given signature. This is useful for comparing 
+    the activity of two biological pathways or gene signatures.
+
+    Parameters:
+    signature (pd.DataFrame): Gene expression signature with columns ['i', 'v'] where 
+                             'i' is gene identifier and 'v' is expression value.
+    gene_set_1 (set or list): First gene set to analyze.
+    gene_set_2 (set or list): Second gene set to analyze.
+    permutations (int, optional): Number of permutations for p-value estimation. Default is 1000.
+    seed (int, optional): Random seed for reproducibility. Default is 0.
+    verbose (bool, optional): Toggle additional output. Default is False.
+    
+    Returns:
+    dict: Dictionary containing:
+        - 'gene_set_1_es': Enrichment score for gene set 1
+        - 'gene_set_2_es': Enrichment score for gene set 2  
+        - 'gene_set_1_nes': Normalized enrichment score for gene set 1
+        - 'gene_set_2_nes': Normalized enrichment score for gene set 2
+        - 'gene_set_1_pval': P-value for gene set 1
+        - 'gene_set_2_pval': P-value for gene set 2
+        - 'differential_es': Difference in enrichment scores (ES1 - ES2)
+        - 'differential_nes': Difference in normalized enrichment scores (NES1 - NES2)
+        - 'more_enriched': Which gene set is more enriched ('gene_set_1' or 'gene_set_2')
+    """
+    
+    if seed == -1:
+        seed = random.randint(-10000000, 100000000)
+    
+    # Set random seeds for reproducibility
+    random.seed(seed)
+    np.random.seed(seed)
+    
+    # Prepare signature
+    signature = signature.copy()
+    signature.columns = ["i", "v"]
+    signature = signature.sort_values("v", ascending=False).set_index("i")
+    signature = signature[~signature.index.duplicated(keep='first')]
+    
+    # Convert gene sets to sets if they aren't already
+    gene_set_1 = set(gene_set_1)
+    gene_set_2 = set(gene_set_2)
+    
+    # Filter gene sets to only include genes in the signature
+    valid_genes = set(signature.index)
+    gene_set_1_filtered = gene_set_1 & valid_genes
+    gene_set_2_filtered = gene_set_2 & valid_genes
+    
+    if len(gene_set_1_filtered) == 0:
+        raise ValueError("Gene set 1 has no genes in common with the signature")
+    if len(gene_set_2_filtered) == 0:
+        raise ValueError("Gene set 2 has no genes in common with the signature")
+    
+    if verbose:
+        print(f"Gene set 1: {len(gene_set_1_filtered)} genes (from {len(gene_set_1)} total)")
+        print(f"Gene set 2: {len(gene_set_2_filtered)} genes (from {len(gene_set_2)} total)")
+    
+    # Prepare signature for calculations
+    abs_signature = np.array(np.abs(signature.loc[:, "v"]))
+    signature_map = {gene: i for i, gene in enumerate(signature.index)}
+    
+    # Calculate enrichment scores for both gene sets
+    running_sum_1, es_1 = enrichment_score(abs_signature, signature_map, gene_set_1_filtered)
+    running_sum_2, es_2 = enrichment_score(abs_signature, signature_map, gene_set_2_filtered)
+    
+    if verbose:
+        print(f"Gene set 1 ES: {es_1:.4f}")
+        print(f"Gene set 2 ES: {es_2:.4f}")
+    
+    # Perform permutation testing for statistical significance
+    null_es_1 = []
+    null_es_2 = []
+    
+    if verbose:
+        print("Running permutation tests...")
+    
+    for i in range(permutations):
+        # Generate null enrichment scores by using random gene sets of the same size
+        null_es_1.append(enrichment_score_null(abs_signature, None, len(gene_set_1_filtered)))
+        null_es_2.append(enrichment_score_null(abs_signature, None, len(gene_set_2_filtered)))
+    
+    null_es_1 = np.array(null_es_1)
+    null_es_2 = np.array(null_es_2)
+    
+    # Calculate normalized enrichment scores (NES)
+    # NES is ES divided by the mean of absolute values of null ES
+    mean_abs_null_1 = np.mean(np.abs(null_es_1))
+    mean_abs_null_2 = np.mean(np.abs(null_es_2))
+    
+    nes_1 = es_1 / mean_abs_null_1 if mean_abs_null_1 > 0 else 0
+    nes_2 = es_2 / mean_abs_null_2 if mean_abs_null_2 > 0 else 0
+    
+    # Calculate p-values
+    if es_1 >= 0:
+        pval_1 = np.sum(null_es_1 >= es_1) / len(null_es_1)
+    else:
+        pval_1 = np.sum(null_es_1 <= es_1) / len(null_es_1)
+    
+    if es_2 >= 0:
+        pval_2 = np.sum(null_es_2 >= es_2) / len(null_es_2)
+    else:
+        pval_2 = np.sum(null_es_2 <= es_2) / len(null_es_2)
+    
+    # Ensure p-values are not zero (add small pseudocount)
+    pval_1 = max(pval_1, 1.0 / permutations)
+    pval_2 = max(pval_2, 1.0 / permutations)
+    
+    # Calculate differential scores
+    differential_es = es_1 - es_2
+    differential_nes = nes_1 - nes_2
+    
+    # Determine which gene set is more enriched based on absolute NES
+    more_enriched = "gene_set_1" if abs(nes_1) > abs(nes_2) else "gene_set_2"
+    
+    if verbose:
+        print(f"Gene set 1 NES: {nes_1:.4f}, p-value: {pval_1:.4f}")
+        print(f"Gene set 2 NES: {nes_2:.4f}, p-value: {pval_2:.4f}")
+        print(f"More enriched: {more_enriched}")
+    
+    return {
+        'gene_set_1_es': float(es_1),
+        'gene_set_2_es': float(es_2),
+        'gene_set_1_nes': float(nes_1),
+        'gene_set_2_nes': float(nes_2),
+        'gene_set_1_pval': float(pval_1),
+        'gene_set_2_pval': float(pval_2),
+        'differential_es': float(differential_es),
+        'differential_nes': float(differential_nes),
+        'more_enriched': more_enriched
+    }
